@@ -5,11 +5,13 @@ var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
 var MongoClient = require("mongodb").MongoClient;
-var ObjectID = require("mongodb").ObjectID;
+var ObjectID = require('mongodb').ObjectID;
 const assert = require("assert");
 
+var thing = require('./node_modules/mongodb');
+
 var index = require('./routes/index');
-var tasks = require('./routes/tasks');
+var tasks = require('./routes/task');
 var about = require('./routes/about');
 
 var app = express();
@@ -26,12 +28,8 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-
-
 //DB connection string.
 var url ="mongodb://localhost:27017/todo";
-
-
 
 MongoClient.connect(url, function(err, db) {
   if (err) {
@@ -49,9 +47,11 @@ MongoClient.connect(url, function(err, db) {
   //So, this function will run for every request. It adds a proprty
   //called db, and set db.tasks to db.collection('tasks'). Now all routes can
   //acccess the DB at req.db.tasks.
+
+  //-> DB callback
   app.use(function(req, res, next) {
     req.db = {};
-    req.db.tasks = db.collection('tasks')
+    req.db.tasks = db.collection('tasks');
     next();   //Need to say next() here or this is the end of request handling for the route.
   });
 

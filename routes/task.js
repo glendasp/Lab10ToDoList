@@ -1,3 +1,8 @@
+var express = require('express');
+var router = express.Router();
+var ObjectID = require('mongodb').ObjectID;
+
+
 /** All incomplete tasks
  * Creates a list of all tasks which are not completed */
 router.get('/', function(req, res, next){
@@ -23,15 +28,15 @@ router.post('/addtask', function(req, res, next) {
     if (!req.body || !req.body.task_name) {
         return next(new Error('no data provided'));
     }
-    //Create a new task by instatiating a task object.
-    var newTask = Task({name : req.body.task_name, completed: false})
 
-    newTask.save(function(err){
-        if (err) {
-            return next(err);
-        }else{
-            res.redirect('/tasks');  //redirect to list of tasks
+    req.db.tasks.save({ name : req.body.task_name, completed: false }, function(error, task){
+        if (error) {
+            return next(error);
         }
+        if (!task) {
+            return next(new Error('error saving new task'));
+        }
+        res.redirect('/tasks');  //redirect to list of tasks
     });
 });
 
@@ -64,7 +69,11 @@ router.post('/alldone', function(req, res, next){
 //This gets called for any routes with url parameters e.g. DELETE and POST tasks/taskID
 //This is REALLY HELPFUL because it provides a task object (_id, name, completed) as
 //attribute of req object.
-//Order matters - this is located here so it doesn't operate on the methods above.
+//  ****** Order of methods matters! - this is located here so it doesn't operate on the methods above.
+// Express checks each route in order to find a match, once one router operates on a request and returns a response,
+// then the request is done and none of the other methods will be called.
+// You want this to router.param() call to happen before delete a task; and mark a task completed, both of these methods require the parameter
+// All other methods (add task, get all tasks, mark all completed, get all completed) should be above this.
 
 router.param('task_id', function(req, res, next, taskId){
     console.log("params being extracted from URL for " + taskId );
@@ -99,20 +108,9 @@ router.post('/:task_id', function(req, res, next) {
     });
 });
 
-/**Set all tasks to completed, display empty tasklist */
-router.post('/alldone', function(req,res,next){
-
-    req.db.task.updateMany({completed:false}, {$set: {completed:true}}, function(error, count){
-        if (error){
-            console.log('error'+error);
-            return next(error);
-        }
-        res.redirect('/tasks');
-    });
-});
 
 
-/** deleteTask
+/* deleteTask
  Delete task with particular ID from database. This is called with AJAX */
 router.delete('/:task_id', function(req, res, next) {
 
@@ -123,5 +121,6 @@ router.delete('/:task_id', function(req, res, next) {
         res.sendStatus(200); //send success to AJAX call.
     });
 });
+
 
 module.exports = router;
