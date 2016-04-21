@@ -4,11 +4,12 @@ var favicon = require('serve-favicon');
 var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
-var MongoClient = require("mongodb").MongoClient;
-var ObjectID = require('mongodb').ObjectID;
-const assert = require("assert");
-
-var thing = require('./node_modules/mongodb');
+var mongoose = require('mongoose');
+var flash = require('connect-flash');
+var session = require('express-session');
+var passport = require('passport');
+//Set up session store, so that users stay logged in even if app is restarted
+var MongoDBStore = require('connect-mongodb-session')(session);
 
 var index = require('./routes/index');
 var tasks = require('./routes/task');
@@ -29,37 +30,41 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
 //DB connection string.
-var url ="mongodb://localhost:27017/todo";
-
-MongoClient.connect(url, function(err, db) {
-  if (err) {
-    console.log("Error connecting to Mongo server: ", err);
-    assert(!err);    //Crash application if error encountered
-  }
-
-  console.log("Established database connection ");
-
-  //Export the DB object to all middlewares, so can perform DB operation in the routes modules.
-  //http://expressjs.com/en/4x/api.html
-  //app.use "mounts" middleware functions for particular paths.
-  //Not specifying a path, just a function, defaults to path '/' which is every path
-
-  //So, this function will run for every request. It adds a proprty
-  //called db, and set db.tasks to db.collection('tasks'). Now all routes can
-  //acccess the DB at req.db.tasks.
-
-  //-> DB callback
-  app.use(function(req, res, next) {
-    req.db = {};
-    req.db.tasks = db.collection('tasks');
-    next();   //Need to say next() here or this is the end of request handling for the route.
-  });
+var userdb_url ="mongodb://localhost:27017/todo";
+var user_sessions_url ="mongodb://localhost:27017/todo_sessions";
 
 
+//Set up sessions and passport
+app.use(session({
+  secret : "replace with long random number",
+  resave : false,
+  saveUninitialized : false,
+  store: new MongoDBStore({url : user_sessions_url})
+}));
+
+require('./config/passport')(passport);
+
+app.use(passport.initialize());
+app.use(passport.session());
+app.use(flash());
+
+
+var db = mongoose.connect(userdb_url);
+
+mongoose.connection.on('error', function(err) {
+  console.log('Error connecting to MongoDB via Mongoose ' + err)
+});
+
+mongoose.connection.once('open', function() {
+
+  console.log("Connected to MongoDB");
   //Set up routes, middleware and error handlers
+
   app.use('/', index);
   app.use('/about', about);
   app.use('/tasks', tasks);
+
+  app.use(flash);
 
   // catch 404 and forward to error handler
   app.use(function(req, res, next) {
@@ -90,6 +95,6 @@ MongoClient.connect(url, function(err, db) {
     });
   });
 
-});   //End of MongoDB callback
+});
 
 module.exports = app;

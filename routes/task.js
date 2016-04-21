@@ -1,126 +1,133 @@
 var express = require('express');
 var router = express.Router();
-var ObjectID = require('mongodb').ObjectID;
+
+var User = require('./../models/user.js');
+var Task = require('./../models/task.js');//Specify models used
 
 
-/** All incomplete tasks
- * Creates a list of all tasks which are not completed */
-router.get('/', function(req, res, next){
 
-    req.db.tasks.find({
-        completed:false
-    }).toArray(function(error, tasklist){
-        if (error) {
+router.get('/', function (req, res, next) {
+    Task.find( { completed : false}, function (error, allTasks){
+        if (error)  // get an allTasks (array) unless there is an error
+        {
             return next(error);
         }
-        /*tasks : tasks || []
-         means if tasklist is true (has a value, not undefined or false)
-         set tasks to tasklist; else set it to empty array []  */
-        var allTasks = tasklist || [];
-        res.render('tasks', {title: "TODO", tasks: allTasks });
-    })
+        res.render('tasks', {title : "TODO", tasks : allTasks });
+    });
 });
 
 
-/*** Adds a new task to the database then redirects to task list */
+router.get('/', function(req, res, next){
+
+    Task.find( { _creator : req.user._id , completed : false} , function(err, incomplete) {
+        res.render('tasks', {
+            title: 'Tasks to do',
+            username: req.user.auth.username.toUpperCase(),
+            tasks: incomplete || []
+        });
+    });
+});
+
+
 router.post('/addtask', function(req, res, next) {
+
+    console.log('Adding task...');
 
     if (!req.body || !req.body.task_name) {
         return next(new Error('no data provided'));
     }
 
-    req.db.tasks.save({ name : req.body.task_name, completed: false }, function(error, task){
-        if (error) {
-            return next(error);
+    //Create a new task by instantiating a Task object...
+    var newTask = Task( {
+        name : req.body.task_name,
+        completed: false } );
+
+    //Then call the save method to save it to the database. Note callback.
+    newTask.save(function(err){
+        if (err) {
+            return next(err);
         }
-        if (!task) {
-            return next(new Error('error saving new task'));
+        else {
+            res.redirect('/tasks');
         }
-        res.redirect('/tasks');  //redirect to list of tasks
     });
 });
 
 
-/*  Get all of the completed tasks. */
 router.get('/completed', function(req, res, next){
 
-    req.db.tasks.find({completed:true}).toArray(function(error, tasklist){
-        if (error) {
-            return next(error);
+    Task.find({ completed : true}, function(err, completedList) {
+        if (err) {
+            return next(err);
         }
-        res.render('tasks_completed', { title:'Completed', tasks: tasklist || [] })
+        res.render('tasks_completed', {
+            title: 'completed',
+            tasks: completedList || []
+        });
     });
 });
 
 
 /**Set all tasks to completed, display empty tasklist */
-router.post('/alldone', function(req, res, next){
+router.post('/alldone', function(req, res, next) {
 
-    req.db.tasks.updateMany({completed: false }, {$set: { completed:true }}, function(error, count) {
-        if (error) {
-            console.log('error ' + error);
-            return next(error);
+    Task.update({  '_creator' : req.user._id, 'completed' : false}, { $set: { 'completed' : true }}, { 'multi' : true }, function (err, result) {
+
+        if (err) {
+            return next(err);
         }
-        res.redirect('/tasks');
+
+        req.user.save(function (err) {
+            if (err) {
+                return next(err);
+            }
+            res.redirect('/tasks');
+        })
     });
 });
 
 
-//This gets called for any routes with url parameters e.g. DELETE and POST tasks/taskID
-//This is REALLY HELPFUL because it provides a task object (_id, name, completed) as
-//attribute of req object.
-//  ****** Order of methods matters! - this is located here so it doesn't operate on the methods above.
-// Express checks each route in order to find a match, once one router operates on a request and returns a response,
-// then the request is done and none of the other methods will be called.
-// You want this to router.param() call to happen before delete a task; and mark a task completed, both of these methods require the parameter
-// All other methods (add task, get all tasks, mark all completed, get all completed) should be above this.
+router.param('task_id', function(req, res, next, taskId) {
 
-router.param('task_id', function(req, res, next, taskId){
-    console.log("params being extracted from URL for " + taskId );
-    //Request task matching this ID, limit to one result.
-    req.db.tasks.find( { _id : ObjectID(taskId) }).limit(1).toArray(function(error, task){
-        if (error) {
-            console.log('param error '+ error);
-            return next(error);
-        }
-        if (task.length != 1) {
-            return next(new Error(task.length + ' tasks found, should be 1'));
-        }
-        req.task = task[0];
-        return next();
+    console.log("params being extracted from URL for " + taskId);
 
-    });
+    req.taskid = taskId;
+    return next();
+
+    /* Alternatively, could fetch a task from the database
+     and attach it to the req object. In the complete task method,
+     would set req.task.completed = true and
+     call the req.task.save method to update the db.
+     */
+
 });
 
-/* Complete a task. POST to /tasks/task_id
- Set task with specific ID to completed = true  */
+
 router.post('/:task_id', function(req, res, next) {
 
     if (!req.body.completed) {
         return next(new Error('body missing parameter?'))
     }
 
-    req.db.tasks.updateOne({_id: ObjectID(req.task._id)}, {$set :{completed:true}}, function(error, result){
-        if (error) {
+    Task.findByIdAndUpdate(req.task._id, {completed : true }, function (error, result){
+        if (error)
+        {
             return next(error);
         }
-        res.redirect('/tasks')
-    });
+        res.redirect('/tasks');
+    } );
+
 });
 
 
-
-/* deleteTask
- Delete task with particular ID from database. This is called with AJAX */
 router.delete('/:task_id', function(req, res, next) {
 
-    req.db.tasks.remove({_id: ObjectID(req.task._id)}, function(error, result){
-        if (error) {
+    Task.remove({ '_id' : req.taskid },  function(err) {
+        if (err) {
             return next(error);
         }
         res.sendStatus(200); //send success to AJAX call.
     });
 });
-
 
 module.exports = router;
